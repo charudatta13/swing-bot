@@ -1,0 +1,68 @@
+name: Daily swing report
+
+on:
+  schedule:
+    # 22:30 UTC on weekdays = 5:30 pm ET in winter, 6:30 pm ET in summer (after the close)
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:          # "Run workflow" button in the Actions tab
+    inputs:
+      backtest:
+        description: "Re-run the 5-year backtest"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write             # save the paper ledger + reports back to the repo
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Run daily pipeline
+        run: |
+          ARGS=""
+          # Weekly (Mondays) or on request: refresh the S&P 500 list and re-run the backtest
+          if [ "$(date -u +%u)" = "1" ] || [ "${{ inputs.backtest }}" = "true" ]; then ARGS="--backtest"; fi
+          python -m swingbot.daily $ARGS
+
+      - name: Save paper ledger and reports
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data reports research
+          git diff --cached --quiet || git commit -m "Daily report $(date -u +%F)"
+          git push
+
+      - name: Keep a downloadable copy
+        uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: reports/latest.html
+          retention-days: 30
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: reports
+      - id: deploy
+        uses: actions/deploy-pages@v4
