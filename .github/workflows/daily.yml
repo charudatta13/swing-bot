@@ -51,7 +51,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data reports research
           git diff --cached --quiet || git commit -m "Daily report $(date -u +%F)"
-          git push
+          # A re-run starts from an older commit: replay this run's results on top of main,
+          # preferring this run's files if both touched them.
+          git pull --rebase -X theirs origin main
+          git push origin HEAD:main
 
       - name: Keep a downloadable copy
         uses: actions/upload-artifact@v4
