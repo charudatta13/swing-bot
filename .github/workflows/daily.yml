@@ -4,13 +4,19 @@ on:
   schedule:
     # 22:30 UTC on weekdays = 5:30 pm ET in winter, 6:30 pm ET in summer (after the close)
     - cron: "30 22 * * 1-5"
-    # Backup: GitHub sometimes starts scheduled runs late or skips them. A second run on the
-    # same day is safe: the ledger drops duplicate signals and nothing is committed if unchanged.
-    - cron: "30 23 * * 1-5"
+    # Backups. GitHub sometimes starts scheduled runs late or skips them, and Yahoo sometimes
+    # publishes the day's prices late (the pipeline then stops with "STALE DATA" and writes nothing).
+    # Extra runs are safe: the ledger drops duplicate signals and nothing is committed if unchanged.
+    - cron: "30 1 * * 2-6"    # 01:30 UTC Tue-Sat = 8:30 pm ET (winter) on the trading day
+    - cron: "0 12 * * 2-6"    # 12:00 UTC Tue-Sat = 7:00 am ET, before the next open
   workflow_dispatch:          # "Run workflow" button in the Actions tab
     inputs:
       backtest:
         description: "Re-run the 5-year backtest"
+        type: boolean
+        default: false
+      allow_stale:
+        description: "Build the report even if the latest day's prices are missing"
         type: boolean
         default: false
 
@@ -46,6 +52,7 @@ jobs:
           ARGS=""
           # Weekly (Mondays) or on request: refresh the S&P 500 list and re-run the backtest
           if [ "$(date -u +%u)" = "1" ] || [ "${{ inputs.backtest }}" = "true" ]; then ARGS="--backtest"; fi
+          if [ "${{ inputs.allow_stale }}" = "true" ]; then ARGS="$ARGS --allow-stale"; fi
           python -m swingbot.daily $ARGS
 
       - name: Save paper ledger and reports

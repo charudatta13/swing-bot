@@ -7,7 +7,11 @@ This is a research and paper-trading tool, not investment advice.
 python -m swingbot.daily              # refresh prices, scan, update paper trades, write report
 python -m swingbot.daily --backtest   # also re-run the 5-year backtest (it re-runs on its own weekly)
 python -m swingbot.daily --refresh    # also re-download earnings/fundamentals
+python -m swingbot.daily --allow-stale  # build the report even if today's prices are missing
 ```
+If Yahoo has not published the latest trading day yet, the run stops with `STALE DATA` and writes
+nothing, so a report is never a day behind without saying so. GitHub Actions tries again at
+8:30 pm ET and 7:00 am ET (before the next open).
 Open `reports/latest.html`. A dated copy is saved for every day.
 
 ## What's where

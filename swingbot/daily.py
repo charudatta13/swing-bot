@@ -43,11 +43,18 @@ def rule_status(bt: dict, paper: pd.DataFrame) -> dict:
     return out
 
 
-def main(refresh_fund: bool = False, rerun_backtest: bool = False):
+def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: bool = False):
     t0 = time.time()
     univ = D.universe(refresh=rerun_backtest)
     tickers = univ.ticker.tolist()
     px = D.prices(tickers)
+    newest, want = px["Close"].index[-1], D.last_session()
+    if newest < want and not allow_stale:
+        # Stop before anything is written: a report built on old prices looks normal but is a
+        # day behind (setups for a session that already happened, P&L not updated).
+        sys.exit(f"STALE DATA: newest prices are for {newest.date()}, expected {want.date()}. "
+                 "Yahoo has not published the latest day yet. Nothing was written. Run again later, "
+                 "or use --allow-stale to build the report anyway.")
     funds = D.fundamentals(tickers, refresh=refresh_fund)
     ind = indicators(px)
     sigs = signals(ind, funds)
@@ -153,4 +160,5 @@ def _setup(ind, t, i, name, st) -> dict:
 
 
 if __name__ == "__main__":
-    main(refresh_fund="--refresh" in sys.argv, rerun_backtest="--backtest" in sys.argv)
+    main(refresh_fund="--refresh" in sys.argv, rerun_backtest="--backtest" in sys.argv,
+         allow_stale="--allow-stale" in sys.argv)
