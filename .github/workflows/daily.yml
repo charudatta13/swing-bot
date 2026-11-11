@@ -4,6 +4,9 @@ on:
   schedule:
     # 22:30 UTC on weekdays = 5:30 pm ET in winter, 6:30 pm ET in summer (after the close)
     - cron: "30 22 * * 1-5"
+    # Backup: GitHub sometimes starts scheduled runs late or skips them. A second run on the
+    # same day is safe: the ledger drops duplicate signals and nothing is committed if unchanged.
+    - cron: "30 23 * * 1-5"
   workflow_dispatch:          # "Run workflow" button in the Actions tab
     inputs:
       backtest:
