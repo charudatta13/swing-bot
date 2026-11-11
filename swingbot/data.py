@@ -9,6 +9,9 @@ from pathlib import Path
 
 import pandas as pd
 import requests
+from pandas.tseries.holiday import (AbstractHolidayCalendar, GoodFriday, Holiday, USLaborDay,
+                                    USMartinLutherKingJr, USMemorialDay, USPresidentsDay,
+                                    USThanksgivingDay, nearest_workday)
 import yfinance as yf
 
 from . import config
@@ -38,19 +41,83 @@ def universe(refresh: bool = False) -> pd.DataFrame:
     return pd.read_csv(path)
 
 
+FIELDS = ["Open", "High", "Low", "Close", "Volume"]
+ET = "America/New_York"
+DATA_READY_ET = pd.Timedelta(hours=16, minutes=30)  # Yahoo's daily bar is normally final by then
+
+
+class _NYSEHolidays(AbstractHolidayCalendar):
+    rules = [
+        Holiday("New Year's Day", month=1, day=1, observance=nearest_workday),
+        USMartinLutherKingJr, USPresidentsDay, GoodFriday, USMemorialDay,
+        Holiday("Juneteenth", month=6, day=19, start_date="2022-01-01", observance=nearest_workday),
+        Holiday("Independence Day", month=7, day=4, observance=nearest_workday),
+        USLaborDay, USThanksgivingDay,
+        Holiday("Christmas", month=12, day=25, observance=nearest_workday),
+    ]
+
+
+def last_session(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    """The most recent NYSE trading day whose closing prices should be available by `now`."""
+    now = (now or pd.Timestamp.now(tz=ET)).tz_convert(ET)
+    day = now.tz_localize(None).normalize()
+    if now.tz_localize(None) - day < DATA_READY_ET:
+        day -= pd.Timedelta(days=1)
+    holidays = set(_NYSEHolidays().holidays(day - pd.Timedelta(days=14), day))
+    while day.weekday() >= 5 or day in holidays:
+        day -= pd.Timedelta(days=1)
+    return day
+
+
+def _by_day(raw: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """One row per calendar day. Yahoo can stamp the newest bar with a different time (or time
+    zone) than older bars, which splits one trading day into two half-empty rows; merge them."""
+    out = {}
+    for f in FIELDS:
+        df = raw[f].copy()
+        idx = pd.DatetimeIndex(df.index)
+        if idx.tz is not None:
+            idx = idx.tz_convert(ET).tz_localize(None)
+        df.index = idx.normalize()
+        out[f] = df.groupby(level=0).last()  # last non-null value per ticker and day
+    return out
+
+
+def _download(tick: list[str], start: str) -> dict[str, pd.DataFrame]:
+    raw = yf.download(tick, start=start, auto_adjust=True, progress=False,
+                      threads=True, group_by="column")
+    return _by_day(raw)
+
+
 def prices(tickers: list[str], refresh: bool = False) -> dict[str, pd.DataFrame]:
     """Returns {'Open','High','Low','Close','Volume'} -> wide DataFrame (dates x tickers).
-    Prices are split/dividend adjusted. SPY is always included."""
+    Prices are split/dividend adjusted. SPY is always included.
+    The newest trading day is checked: tickers missing from it are downloaded again, because
+    Yahoo's bulk download sometimes leaves the latest day out for many tickers."""
     path = DATA / "prices.pkl"
     if not refresh and _fresh(path, 10):
         return pickle.loads(path.read_bytes())
     tick = sorted(set(tickers) | {"SPY"})
-    raw = yf.download(tick, start=config.HISTORY_START, auto_adjust=True, progress=False,
-                      threads=True, group_by="column")
-    # Keep only days with real closes (drops an unfinished session where Close is still NaN).
-    days = raw["Close"].dropna(how="all").index
-    days = days[raw["Close"].loc[days].notna().mean(axis=1) > 0.5]
-    out = {f: raw[f].loc[days] for f in ["Open", "High", "Low", "Close", "Volume"]}
+    px = _download(tick, config.HISTORY_START)
+    want = last_session()
+    for attempt in range(1, 4):
+        c = px["Close"]
+        have = c.loc[want].notna() if want in c.index else pd.Series(False, index=c.columns)
+        missing = have.index[~have].tolist()
+        print(f"Prices for {want.date()}: {have.mean():.0%} of {len(have)} tickers")
+        if len(missing) <= 0.02 * len(tick):  # a few delisted/odd tickers are normal
+            break
+        time.sleep(20 * attempt)
+        recent = _download(missing, str((want - pd.Timedelta(days=10)).date()))
+        for f in FIELDS:
+            px[f] = px[f].combine_first(recent[f].reindex(columns=px[f].columns))
+    # Keep only days with real closes for most tickers (drops an unfinished session).
+    c = px["Close"]
+    days = c.index[c.notna().mean(axis=1) > 0.5]
+    dropped = c.index[c.index > days[-1]]
+    if len(dropped):
+        print(f"Dropped incomplete day(s): {[str(d.date()) for d in dropped]}")
+    out = {f: px[f].loc[days] for f in FIELDS}
     path.write_bytes(pickle.dumps(out))
     return out
 
