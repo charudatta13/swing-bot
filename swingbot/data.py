@@ -83,10 +83,23 @@ def _by_day(raw: pd.DataFrame) -> dict[str, pd.DataFrame]:
     return out
 
 
+def _adjust(raw: pd.DataFrame) -> pd.DataFrame:
+    """Split/dividend-adjust prices ourselves instead of yfinance's auto_adjust.
+    Yahoo publishes the newest day's Close hours before its 'Adj Close'; auto_adjust multiplies
+    by Adj Close / Close, which blanks the whole day until then. The newest bar's adjustment
+    factor is always 1 (adjustments only apply to earlier prices), so a missing Adj Close on a
+    day that has a Close is filled with factor 1."""
+    close, adj = raw["Close"], raw["Adj Close"]
+    ratio = (adj / close).where(adj.notna(), 1.0).where(close.notna())
+    out = {f: raw[f] * ratio for f in ["Open", "High", "Low", "Close"]}
+    out["Volume"] = raw["Volume"]
+    return pd.concat(out, axis=1)
+
+
 def _download(tick: list[str], start: str) -> dict[str, pd.DataFrame]:
-    raw = yf.download(tick, start=start, auto_adjust=True, progress=False,
+    raw = yf.download(tick, start=start, auto_adjust=False, progress=False,
                       threads=True, group_by="column")
-    return _by_day(raw)
+    return _by_day(_adjust(raw))
 
 
 def prices(tickers: list[str], refresh: bool = False) -> dict[str, pd.DataFrame]:
@@ -111,7 +124,9 @@ def prices(tickers: list[str], refresh: bool = False) -> dict[str, pd.DataFrame]
         recent = _download(missing, str((want - pd.Timedelta(days=10)).date()))
         for f in FIELDS:
             px[f] = px[f].combine_first(recent[f].reindex(columns=px[f].columns))
-    # Keep only days with real closes for most tickers (drops an unfinished session).
+    # Drop a session still in progress (a run during market hours gets a live, partial bar),
+    # then keep only days with real closes for most tickers.
+    px = {f: px[f].loc[:want] for f in FIELDS}
     c = px["Close"]
     days = c.index[c.notna().mean(axis=1) > 0.5]
     dropped = c.index[c.index > days[-1]]
