@@ -55,6 +55,8 @@ def analyze(univ: pd.DataFrame, px: dict, funds: dict) -> pd.DataFrame:
         if t not in C.columns:
             continue
         c = C[t]
+        if c.isna().all():  # no prices for this stock (failed download): nothing to compare
+            continue
         p1, p2, p3, pl = _px_at(c, q1), _px_at(c, q2), _px_at(c, q3), c.dropna().iloc[-1]
         r = dict(ticker=t, name=u["name"], sector=u.sector, industry=u.industry,
                  ret_q2=p2 / p1 - 1, ret_q3=p3 / p2 - 1, ret_qtd=pl / p3 - 1, price=pl)

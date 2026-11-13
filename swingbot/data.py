@@ -117,17 +117,27 @@ def prices(tickers: list[str], refresh: bool = False) -> dict[str, pd.DataFrame]
         c = px["Close"]
         have = c.loc[want].notna() if want in c.index else pd.Series(False, index=c.columns)
         missing = have.index[~have].tolist()
-        print(f"Prices for {want.date()}: {have.mean():.0%} of {len(have)} tickers")
-        if len(missing) <= 0.02 * len(tick):  # a few delisted/odd tickers are normal
+        print(f"Prices for {want.date()}: {have.mean():.0%} of {len(have)} tickers"
+              + (f" (missing: {', '.join(missing[:10])}{' ...' if len(missing) > 10 else ''})" if missing else ""))
+        if not missing:
             break
-        time.sleep(20 * attempt)
-        recent = _download(missing, str((want - pd.Timedelta(days=10)).date()))
+        # Download the missing tickers again with full history: a ticker can fail completely
+        # (e.g. yfinance's "database is locked"), not just miss the newest day.
+        time.sleep(10 * attempt)
+        again = _download(missing, config.HISTORY_START)
         for f in FIELDS:
-            px[f] = px[f].combine_first(recent[f].reindex(columns=px[f].columns))
+            px[f] = px[f].combine_first(again[f].reindex(columns=px[f].columns))
     # Drop a session still in progress (a run during market hours gets a live, partial bar),
     # then keep only days with real closes for most tickers.
     px = {f: px[f].loc[:want] for f in FIELDS}
     c = px["Close"]
+    if c["SPY"].isna().all():
+        raise RuntimeError("SPY prices could not be downloaded; the market filter needs them.")
+    empty = c.columns[c.isna().all()].tolist()
+    if empty:  # nothing to analyse; leaving them in would break per-stock calculations
+        print(f"No prices at all for {empty}; left out of this run.")
+        px = {f: px[f].drop(columns=empty) for f in FIELDS}
+        c = px["Close"]
     days = c.index[c.notna().mean(axis=1) > 0.5]
     dropped = c.index[c.index > days[-1]]
     if len(dropped):
