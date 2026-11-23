@@ -17,3 +17,8 @@ Q_ENDS = {"Q1": "2026-03-31", "Q2": "2026-06-30", "Q3": "2026-09-30"}
 # --- Paper trading ---
 MAX_NEW_PAPER_TRADES_PER_DAY = 5
 USE_MARKET_FILTER = True       # only go long when SPY is above its 200-day average
+
+# --- Rule settings ---
+# Oversold bounce: the stock must also be down at least this much over the last 5 days.
+# Backtest (Nov 2026): shallower dips lost money after costs in both 2021-24 and 2024-26.
+MEANREV_MIN_DROP_5D = 0.05
