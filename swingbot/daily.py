@@ -32,7 +32,7 @@ def rule_status(bt: dict, paper: pd.DataFrame) -> dict:
             if len(paper) else paper
         recent = p.tail(30)
         ps = B.stats(recent) if len(recent) else dict(trades=0)
-        if s.get("trades", 0) < 30 or s["expectancy"] <= 0:
+        if not _has_edge(s):
             st, why = "Off", "Backtest shows no edge"
         elif ps["trades"] >= 20 and ps["expectancy"] < 0:
             st, why = "Paused", f"Last {ps['trades']} paper trades lost money on average"
@@ -79,10 +79,14 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
             bt[name] = dict(stats=B.stats(tr), early=B.stats(tr[tr.entry_date < mid]),
                             late=B.stats(tr[tr.entry_date >= mid]), curve=eq, port=B.curve_stats(eq),
                             by_year=tr[tr.exit_reason != "open"].groupby(tr.entry_date.dt.year).ret.agg(["count", "mean"]))
-        combo_eq = B.portfolio(ind, trades, config.MAX_OPEN_POSITIONS, config.BACKTEST_START)
+        # Combined result for the rules that can actually trade: a rule with no backtest edge is
+        # "Off" and never logged, so including it would misstate what the strategy does.
+        used = [n for n in RULES if _has_edge(bt[n]["stats"])]
+        combo = trades[trades.rule.isin(used)]
+        combo_eq = B.portfolio(ind, combo, config.MAX_OPEN_POSITIONS, config.BACKTEST_START)
         spy = ind["C"]["SPY"].loc[combo_eq.index[0]:]
         spy_eq = spy / spy.iloc[0]
-        bt["_combined"] = dict(curve=combo_eq, port=B.curve_stats(combo_eq), stats=B.stats(trades))
+        bt["_combined"] = dict(curve=combo_eq, port=B.curve_stats(combo_eq), stats=B.stats(combo), rules=used)
         bt["_spy"] = dict(curve=spy_eq, port=B.curve_stats(spy_eq))
         bt["_split_date"] = mid
         bt["_created"] = time.time()
@@ -138,9 +142,14 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
     return out
 
 
+def _has_edge(stats: dict) -> bool:
+    """Enough backtest trades and a positive average return after costs."""
+    return stats.get("trades", 0) >= 30 and stats["expectancy"] > 0
+
+
 def _rules_version() -> str:
-    """Changes whenever the rules or settings change, so the cached backtest is redone."""
-    src = "".join((Path(__file__).parent / f).read_text() for f in ["rules.py", "config.py", "backtest.py"])
+    """Changes whenever the rules, settings or backtest code change, so the cached backtest is redone."""
+    src = "".join((Path(__file__).parent / f).read_text() for f in ["rules.py", "config.py", "backtest.py", "daily.py"])
     return hashlib.sha256(src.encode()).hexdigest()[:12]
 
 

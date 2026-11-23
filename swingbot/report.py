@@ -139,12 +139,15 @@ def write(market, setups, paper, status, bt, qdf, sectors, notes) -> str:
                 "Avg days", f"CAGR ({config.MAX_OPEN_POSITIONS} slots)", "Max drawdown", "Paper n / avg"], rows, "score")
     cb, sp = bt["_combined"]["port"], bt["_spy"]["port"]
     split = pd.Timestamp(bt["_split_date"]).date()
-    sc += f"""<h3>All four rules together vs. buying and holding the S&amp;P 500</h3>
+    used = bt["_combined"].get("rules", list(RULES))
+    names = ", ".join(RULES[n].label for n in used)
+    sc += f"""<h3>Rules in use together vs. buying and holding the S&amp;P 500</h3>
+<p class=mut>{E(names)} (rules with no backtest edge are left out, since they never trade)</p>
 <div class=tiles>
- <div class=tile><div class=k>Rules combined, CAGR</div><div class=v>{pct(cb['cagr'])}</div><div class=s>max drawdown {pct(cb['max_dd'])}, Sharpe {cb['sharpe']:.2f}</div></div>
+ <div class=tile><div class=k>Rules in use, CAGR</div><div class=v>{pct(cb['cagr'])}</div><div class=s>max drawdown {pct(cb['max_dd'])}, Sharpe {cb['sharpe']:.2f}</div></div>
  <div class=tile><div class=k>S&amp;P 500, CAGR</div><div class=v>{pct(sp['cagr'])}</div><div class=s>max drawdown {pct(sp['max_dd'])}, Sharpe {sp['sharpe']:.2f}</div></div>
 </div>
-{equity_chart({'Rules combined': bt['_combined']['curve'], 'S&P 500': bt['_spy']['curve']})}
+{equity_chart({'Rules in use': bt['_combined']['curve'], 'S&P 500': bt['_spy']['curve']})}
 <p class=note><b>How to read this.</b> Backtest from {config.BACKTEST_START} on today's S&amp;P 500 members, entering at the next open, with
 {config.COST_ROUND_TRIP*100:.2f}% round-trip costs, at most {config.MAX_OPEN_POSITIONS} positions. "Early → recent" splits trades at {split}:
 a rule whose edge shrinks or flips in the recent period is a warning. <b>Results are optimistic</b>: using today's members leaves out
