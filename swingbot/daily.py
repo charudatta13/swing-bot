@@ -1,6 +1,7 @@
 """Run after the market closes:  python -m swingbot.daily
 1. refresh data  2. Q2 vs Q3 study  3. backtest each rule (re-run weekly)
 4. today's setups  5. update the paper ledger  6. write reports/report_<date>.html"""
+import hashlib
 import json
 import pickle
 import sys
@@ -27,7 +28,8 @@ def rule_status(bt: dict, paper: pd.DataFrame) -> dict:
     out = {}
     for name in RULES:
         s = bt[name]["stats"]
-        p = paper[(paper.rule == name) & (paper.exit_reason != "open")] if len(paper) else paper
+        p = paper[(paper.rule == name) & ~paper.exit_reason.isin(["open", "pending entry"])] \
+            if len(paper) else paper
         recent = p.tail(30)
         ps = B.stats(recent) if len(recent) else dict(trades=0)
         if s.get("trades", 0) < 30 or s["expectancy"] <= 0:
@@ -64,9 +66,10 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
     asof = ind["C"].index[-1]
     print(f"Data through {asof.date()} ({time.time()-t0:.0f}s)")
 
-    # --- Backtest (cached for a week) ---
-    bt_age_days = (time.time() - pickle.loads(BT_CACHE.read_bytes()).get("_created", 0)) / 86400         if BT_CACHE.exists() else 1e9
-    if rerun_backtest or bt_age_days > 7:
+    # --- Backtest (cached for a week, or until the rules or settings change) ---
+    cached = pickle.loads(BT_CACHE.read_bytes()) if BT_CACHE.exists() else {}
+    bt_age_days = (time.time() - cached.get("_created", 0)) / 86400
+    if rerun_backtest or bt_age_days > 7 or cached.get("_version") != _rules_version():
         trades = B.all_trades(ind, sigs, config.BACKTEST_START)
         bt = {}
         mid = pd.Timestamp(config.BACKTEST_START) + (asof - pd.Timestamp(config.BACKTEST_START)) * 0.6
@@ -83,6 +86,7 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
         bt["_spy"] = dict(curve=spy_eq, port=B.curve_stats(spy_eq))
         bt["_split_date"] = mid
         bt["_created"] = time.time()
+        bt["_version"] = _rules_version()
         BT_CACHE.write_bytes(pickle.dumps(bt))
         print(f"Backtest done ({time.time()-t0:.0f}s)")
     bt = pickle.loads(BT_CACHE.read_bytes())
@@ -102,7 +106,17 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
             setups.append(_setup(ind, t, i, name, status[name]["status"]))
     # Best-evidence rule first, then strongest signal within the rule
     setups = sorted(setups, key=lambda s: (-bt[s["rule"]]["stats"]["expectancy"], -s["score"]))
-    todays = pd.DataFrame(setups[:config.MAX_NEW_PAPER_TRADES_PER_DAY])
+    # A stock already open in the paper ledger (under any rule) is not logged again:
+    # holding it twice would double the planned risk in one stock.
+    held = set(paper_prev.ticker[paper_prev.exit_reason.isin(["open", "pending entry"])]) \
+        if len(paper_prev) else set()
+    picks = []
+    for s in setups:
+        s["held"] = s["ticker"] in held
+        if not s["held"] and len(picks) < config.MAX_NEW_PAPER_TRADES_PER_DAY:
+            picks.append(s)
+            held.add(s["ticker"])  # also stops a second rule logging it today
+    todays = pd.DataFrame(picks)
     if len(todays):
         new = todays[["ticker", "rule", "score"]].assign(signal_date=asof)
         ledger = pd.concat([ledger, new]).drop_duplicates(["signal_date", "ticker", "rule"])
@@ -122,6 +136,12 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
     out = report.write(market, setups, paper, status, bt, qdf, Q.sector_table(qdf), notes)
     print(f"Report: {out}  ({time.time()-t0:.0f}s)")
     return out
+
+
+def _rules_version() -> str:
+    """Changes whenever the rules or settings change, so the cached backtest is redone."""
+    src = "".join((Path(__file__).parent / f).read_text() for f in ["rules.py", "config.py", "backtest.py"])
+    return hashlib.sha256(src.encode()).hexdigest()[:12]
 
 
 def _simulate_ledger(ind, ledger: pd.DataFrame) -> pd.DataFrame:

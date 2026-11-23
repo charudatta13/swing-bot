@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from . import config
 from . import data as D
 
 
@@ -30,7 +31,8 @@ RULES = {
                      "Closes at a new 52-week high on at least 2x normal volume, near the day's high, "
                      "above its 200-day average.", stop_atr=2.0, target_atr=4.0, max_days=20),
     "meanrev": Rule("meanrev", "Oversold bounce",
-                    "Stock above its 200-day average falls hard for a few days (2-day RSI < 5). "
+                    "Stock above its 200-day average falls hard for a few days (2-day RSI < 5, "
+                    "down at least 5% in 5 days). "
                     "Exit when it closes back above its 5-day average.",
                     stop_atr=3.0, target_atr=None, max_days=10, exit_above_sma5=True),
     "pead": Rule("pead", "Post-earnings drift",
@@ -75,7 +77,8 @@ def signals(ind: dict, funds: dict[str, dict] | None = None) -> dict[str, pd.Dat
     out["pullback"] = liquid & (c > s50) & (s50 > s200) & (ind["rsi14"] < 40) & (ind["rsi14"].shift() >= 40)
     rng = (h - l).replace(0, np.nan)
     out["breakout"] = liquid & (c > ind["hi252"]) & (v > 2 * ind["vol50"]) & (c > s200) & ((c - l) / rng > 0.75)
-    out["meanrev"] = liquid & (c > s200) & (ind["rsi2"] < 5)
+    drop5 = c / c.shift(5) - 1
+    out["meanrev"] = liquid & (c > s200) & (ind["rsi2"] < 5) & (drop5 <= -config.MEANREV_MIN_DROP_5D)
     pead = pd.DataFrame(False, index=c.index, columns=c.columns)
     if funds:
         days = c.index

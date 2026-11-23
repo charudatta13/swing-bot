@@ -91,7 +91,8 @@ def write(market, setups, paper, status, bt, qdf, sectors, notes) -> str:
     if setups:
         rows = []
         for s in setups[:15]:
-            rows.append([f"<b>{E(s['ticker'])}</b>", E(s["rule_label"]), E(s["status"]), money(s["close"]),
+            st_txt = E(s["status"]) + ("<div class=mut>already open</div>" if s.get("held") else "")
+            rows.append([f"<b>{E(s['ticker'])}</b>", E(s["rule_label"]), st_txt, money(s["close"]),
                          money(s["stop"]), money(s["target"]) if s["target"] else "exit on bounce",
                          f"{s['max_days']} days", f"{s['shares']} sh ({money(s['position'])})",
                          money(s["risk"])])
@@ -99,7 +100,7 @@ def write(market, setups, paper, status, bt, qdf, sectors, notes) -> str:
                     "Size", "$ at risk"], rows)
         st += (f"<p class=note>Sizes assume a {money(config.ACCOUNT_SIZE)} account, max {config.MAX_POSITION_PCT}% per stock, "
                f"{config.RISK_PER_TRADE_PCT}% account risk to the stop. Stops/targets are from today's close; if it opens far "
-               f"away, move them by the same amount or skip. The top {config.MAX_NEW_PAPER_TRADES_PER_DAY} are logged as paper trades.</p>")
+               f"away, move them by the same amount or skip. The top {config.MAX_NEW_PAPER_TRADES_PER_DAY} not already open are logged as paper trades.</p>")
     else:
         st = "<p>No setups today.</p>"
     parts.append(f"<section><h2>New setups for next session</h2>{st}</section>")
