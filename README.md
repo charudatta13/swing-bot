@@ -22,6 +22,9 @@ Open `reports/latest.html`. A dated copy is saved for every day.
 | `swingbot/backtest.py` | Trade simulator, used by both the backtest and the paper ledger |
 | `swingbot/daily.py` | Daily pipeline + rule status (Active / Reduced / Paused / Off) |
 | `swingbot/quarterly.py` | Q2 vs Q3 2026 study and the computed "driver" text |
+| `swingbot/hero.py` | Hero watchlist: monthly picks of volatile market leaders, paper only (see `research/hero/README.md`) |
+| `data/hero_signals.csv` | The hero paper ledger: monthly picks, re-simulated each day |
+| `research/hero/` | The study behind the hero watchlist: code, results and write-up |
 | `research/why_notes.json` | News explanations for the big movers (edit or extend freely) |
 | `data/paper_signals.csv` | The paper ledger: every logged signal, re-simulated each day |
 | `data/q2_q3_analysis.csv` | Full Q2 vs Q3 table for all ~500 stocks |

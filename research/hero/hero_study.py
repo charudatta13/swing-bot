@@ -27,14 +27,14 @@ import pandas as pd
 
 from swingbot import config
 from swingbot import data as D
+from swingbot import hero
 
 HERE = Path(__file__).resolve().parent
 START = pd.Timestamp("2021-06-01")
 SPLIT = pd.Timestamp("2023-09-01")          # early / late halves of the signal dates
 COST = config.COST_ROUND_TRIP
-INITIAL_STOP = 0.25                         # exit if the price falls 25% below entry
-MAX_DAYS = 252                              # hold at most ~12 months
-SLOTS = 4                                   # hero sleeve: 4 positions of equal size
+MAX_DAYS = hero.MAX_DAYS                    # hold at most ~12 months
+SLOTS = hero.SLOTS                          # hero sleeve: 4 positions of equal size
 
 
 # ---------------------------------------------------------------- data
@@ -101,34 +101,8 @@ def candidates(X, name):
 
 
 # ---------------------------------------------------------------- trade simulation
-def simulate(C, O, H, L, t, d, trail):
-    """Buy at the next open after signal date d. Exit (whichever comes first):
-    low <= initial stop (at the stop, or the open if it gapped below), close <= best close * (1 - trail)
-    (at the next open), or MAX_DAYS (at the close). Returns None if there is no next day."""
-    j = C.columns.get_loc(t)
-    i0 = C.index.get_loc(d) + 1
-    if i0 >= len(C) or np.isnan(O.iat[i0, j]):
-        return None
-    entry = O.iat[i0, j]
-    stop = entry * (1 - INITIAL_STOP)
-    peak = entry
-    last = min(i0 + MAX_DAYS - 1, len(C) - 1)
-    for i in range(i0, last + 1):
-        o, lo, c = O.iat[i, j], L.iat[i, j], C.iat[i, j]
-        if np.isnan(c):
-            continue
-        if i > i0 and o <= stop:
-            return dict(exit_i=i, exit=o, why="stop (gap)", entry=entry, entry_i=i0)
-        if lo <= stop:
-            return dict(exit_i=i, exit=stop, why="stop", entry=entry, entry_i=i0)
-        peak = max(peak, c)
-        trail_px = peak * (1 - trail)
-        if trail_px > stop and c <= trail_px:  # trailing exit only once it is above the initial stop
-            k = min(i + 1, len(C) - 1)
-            px = O.iat[k, j] if not np.isnan(O.iat[k, j]) else c
-            return dict(exit_i=k, exit=px, why="trailing", entry=entry, entry_i=i0)
-    open_ = last == len(C) - 1 and i0 + MAX_DAYS - 1 > len(C) - 1
-    return dict(exit_i=last, exit=C.iat[last, j], why="open" if open_ else "12 months", entry=entry, entry_i=i0)
+# The bot's hero watchlist uses the same exit rules (swingbot/hero.py), so they cannot drift apart.
+simulate = hero.simulate
 
 
 def trade_level(C, O, H, L, cand, trail):
