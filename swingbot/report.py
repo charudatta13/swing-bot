@@ -30,6 +30,47 @@ def table(headers, rows, cls=""):
     return f"<div class=tw><table class='{cls}'><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table></div>"
 
 
+def hero_section(hero: dict) -> str:
+    """Monthly hero watchlist: volatile leaders that may double (paper only)."""
+    from . import hero as HERO
+    cands, tr = hero["cands"], hero["trades"]
+    acct = config.ACCOUNT_SIZE
+    per = acct * 0.10 / HERO.SLOTS
+    txt = (f"<p class=note><b>Paper only.</b> Among the most volatile 20% of S&amp;P 500 stocks: up at least "
+           f"{HERO.MIN_MOM6:.0%} over 6 months and within {HERO.MAX_BELOW_HIGH:.0%} of the 52-week high, "
+           f"ranked by 6-month gain. On the first run of each month, free slots in a {HERO.SLOTS}-position "
+           f"paper sleeve are filled from the top. Exits: {HERO.INITIAL_STOP:.0%} stop-loss, then "
+           f"{HERO.TRAIL:.0%} below the best close since entry, or after 12 months. Most picks are expected "
+           f"to lose; the case rests on a few large winners (backtest and biases: "
+           f"<code>research/hero/README.md</code>). If it is ever used with real money: at most 10% of the "
+           f"account, about {money(per)} per pick on {money(acct)}.</p>")
+    rows = [[f"<b>{E(t)}</b>" + (" <span class=mut>held</span>" if r.held else ""), money(r.close),
+             pct(r.mom6, 0), pct(r.hi_dist), pct(r.vol60, 0, False)] for t, r in cands.head(10).iterrows()]
+    txt += "<h3>Today's candidates</h3>" + (table(["Stock", "Last close", "6-month gain", "From 52-week high",
+                                                    "Volatility (yearly)"], rows) if rows else
+                                            "<p class=mut>No stock passes the screen today.</p>")
+    if len(tr):
+        op = tr[tr.why.isin(["open", "pending entry"])]
+        rows = []
+        for r in op.itertuples():
+            if r.why == "pending entry":
+                rows.append([f"<b>{E(r.ticker)}</b>", str(r.signal_date.date()), "—", "—", "—", "—", "—", "pending entry"])
+            else:
+                rows.append([f"<b>{E(r.ticker)}</b>", str(r.signal_date.date()), money(r.entry), money(r.peak),
+                             money(r.exit_level), money(r.last), pct(r.ret), f"{int(r.days)} days"])
+        txt += "<h3>Open hero paper trades</h3>" + (table(["Stock", "Picked", "Entry", "Best close",
+                                                          "Exit if close below", "Last", "P&amp;L", "Held"], rows)
+                                                    if rows else "<p class=mut>None open.</p>")
+        cl = tr[~tr.why.isin(["open", "pending entry"])]
+        cl = cl.sort_values("exit_date", ascending=False) if len(cl) else cl
+        rows = [[f"<b>{E(r.ticker)}</b>", str(r.entry_date.date()), str(r.exit_date.date()), money(r.entry),
+                 money(r.exit), pct(r.ret), E(r.why)] for r in cl.itertuples()]
+        if rows:
+            txt += "<h3>Closed hero paper trades</h3>" + table(["Stock", "In", "Out", "Entry", "Exit", "Return",
+                                                                "Why"], rows)
+    return f"<section><h2>Hero watchlist (monthly, paper only)</h2>{txt}</section>"
+
+
 def equity_chart(series: dict[str, pd.Series]) -> str:
     """Line chart, one shared y-axis (growth of $1), crosshair tooltip."""
     W, H, pl, pr, pt, pb = 760, 280, 48, 150, 12, 28
@@ -72,7 +113,7 @@ def equity_chart(series: dict[str, pd.Series]) -> str:
             f"<script type=application/json class=cdata>{json.dumps(data)}</script>")
 
 
-def write(market, setups, paper, status, bt, qdf, sectors, notes) -> str:
+def write(market, setups, paper, status, bt, qdf, sectors, notes, hero=None) -> str:
     asof = market["asof"]
     parts = []
 
@@ -123,6 +164,8 @@ def write(market, setups, paper, status, bt, qdf, sectors, notes) -> str:
     else:
         ptxt = "<p class=mut>The paper ledger starts today. Trades open at the next session's open price.</p>"
     parts.append(f"<section><h2>Paper trades (forward test)</h2>{ptxt}</section>")
+    if hero is not None:
+        parts.append(hero_section(hero))
 
     # ---------- Scorecard ----------
     rows = []

@@ -14,6 +14,7 @@ import pandas as pd
 from . import backtest as B
 from . import config
 from . import data as D
+from . import hero as HERO
 from . import quarterly as Q
 from . import report
 from .rules import RULES, indicators, score, signals
@@ -137,7 +138,8 @@ def main(refresh_fund: bool = False, rerun_backtest: bool = False, allow_stale: 
                   spy_200=ind["C"]["SPY"].rolling(200).mean().iloc[-1],
                   ok=bool(ind["market_ok"].iloc[-1]),
                   breadth=float((ind["C"].iloc[-1] > ind["sma200"].iloc[-1]).mean()))
-    out = report.write(market, setups, paper, status, bt, qdf, Q.sector_table(qdf), notes)
+    hero = HERO.run(ind, tickers)  # monthly hero watchlist (paper only)
+    out = report.write(market, setups, paper, status, bt, qdf, Q.sector_table(qdf), notes, hero=hero)
     print(f"Report: {out}  ({time.time()-t0:.0f}s)")
     return out
 
